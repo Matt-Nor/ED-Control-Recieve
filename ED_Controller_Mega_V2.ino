@@ -10,7 +10,10 @@
 #include <PacketSerial.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <Adafruit_NeoPixel.h>
 #include "switchReading.h"
+#include "Emojis.h"
+
 
 // Communication period frequency
 #define LOOP_PERIOD_MS 50  //
@@ -40,6 +43,10 @@
 //OLED screen parameters
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
+
+//LED parameters
+#define LED_PIN 2
+#define LED_COUNT 76
 
 //global variables
 uint8_t sendMsg[4] = { 0x00 };
@@ -78,14 +85,20 @@ switchReading buttons;
 // declare an SSD1306 display object connected to I2C
 Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
+// declare LED object
+Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_RGBW + NEO_KHZ800);
+
 //Function prototypes
 void sendButtonCmd(uint16_t);
 void sendJoystickValue(void);
 void onPacketReceived(const uint8_t*, size_t);
 void processReceivedData(const uint8_t*, size_t);
 void setupOLED(uint8_t);
+void setupLED(uint8_t);
+void colorFill(uint32_t);
 uint8_t sampleJoystickPins();
 uint8_t sampleJoystickPin(uint8_t, uint16_t*);
+const uint8_t* Stuff_Emoji(uint8_t);
 
 //Setup loop, runs once
 void setup() {
@@ -94,6 +107,9 @@ void setup() {
 
   // setup OLED screen and confirm status
   setupOLED(0x3C);
+
+  // setup LED strips
+  setupLED(100);
 
   // setup switches according to parameters set in switches struct
   buttons.switchSetup();
@@ -224,7 +240,67 @@ void setupOLED(uint8_t ID) {
 
   oled.setTextSize(1);           // text size
   oled.setTextColor(WHITE);      // text color
-  oled.setCursor(0, 10);         // position to display
+  oled.setCursor(0, 0);          // position to display
   oled.println("Hello World!");  // text to display
   oled.display();                // show on OLED
+}
+
+const uint8_t* Stuff_Emoji(uint8_t slc) {
+  switch (slc) {
+    case 1:
+      return RIGHT_LION;
+      break;
+    case 2:
+      return LEFT_LION;
+      break;
+    case 3:
+      return ED_FACE;
+      break;
+    case 4:
+      return RAFIKI_FACE;
+      break;
+    default:
+      break;
+  }
+}
+
+void setupLED(uint8_t initialBrightness) {
+  strip.begin();                           // INITIALIZE NeoPixel strip object (REQUIRED)
+  strip.show();                            // Turn OFF all pixels ASAP
+  strip.setBrightness(initialBrightness);  // Set BRIGHTNESS to about 1/5 (max = 255)
+}
+
+void colorFill(uint32_t color) {
+  for (int i = 0; i < strip.numPixels(); i++) {  // For each pixel in strip...
+    strip.setPixelColor(i, color);               //  Set pixel's color (in RAM)
+    strip.show();
+  }  //  Update strip to match                                //  Pause for a moment
+}
+
+void changeColour(uint8_t colour) {
+  switch (colour) {
+    case 1:
+      colorFill(strip.Color(0, 255, 0));  // Red
+      break;
+    case 2:
+      colorFill(strip.Color(255, 0, 0));  // Green
+      break;
+    case 3:
+      colorFill(strip.Color(0, 0, 255));  // Blue
+      break;
+    case 4:
+      colorFill(strip.Color(255, 255, 0));  // Yellow
+      break;
+    case 5:
+      colorFill(strip.Color(255, 0, 255));  // Cyan
+      break;
+    case 6:
+      colorFill(strip.Color(0, 255, 255));  // Fuchsia
+      break;
+    case 7:
+      colorFill(strip.Color(127, 127, 127));  // White
+      break;
+    default:
+      break;
+  }
 }
