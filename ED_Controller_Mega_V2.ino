@@ -45,14 +45,19 @@
 #define SCREEN_HEIGHT 64
 
 //LED parameters
-#define LED_PIN 2
-#define LED_COUNT 76
+#define LED_PIN 5
+#define LED_COUNT 30
+#define BRIGHTNESS 255
 
 //global variables
 uint8_t sendMsg[4] = { 0x00 };
 uint8_t recMsg[4] = { 0x00 };
 unsigned long timerVar = 0;
+uint8_t LEDColour = 0;
+uint8_t LEDBrightness = 0;
 uint16_t switchCheck = 0;
+bool LEDStatus = 0;
+bool lightStatus = 0;
 
 // struct declaration
 struct PacketStruct {
@@ -95,27 +100,29 @@ void onPacketReceived(const uint8_t*, size_t);
 void processReceivedData(const uint8_t*, size_t);
 void setupOLED(uint8_t);
 void setupLED(uint8_t);
-void colorFill(uint32_t);
+void LEDFill(uint32_t);
+void changeColour(uint8_t, double);
+double changeBrightness(uint8_t);
 uint8_t sampleJoystickPins();
 uint8_t sampleJoystickPin(uint8_t, uint16_t*);
-const uint8_t* Stuff_Emoji(uint8_t);
+const uint8_t* stufEmoji(uint8_t);
 
 //Setup loop, runs once
 void setup() {
   Serial.begin(9600);
   Serial1.begin(115200);
 
-  // setup OLED screen and confirm status
+  // // setup OLED screen and confirm status
   setupOLED(0x3C);
 
   // setup LED strips
-  setupLED(100);
+  setupLED(BRIGHTNESS);
 
-  // setup switches according to parameters set in switches struct
+  // // setup switches according to parameters set in switches struct
   buttons.switchSetup();
 
-  // initialize joystick data state variables
-  sampleJoystickPins();
+  // // initialize joystick data state variables
+  // sampleJoystickPins();
 
   // If we want to receive packets, we must specify a packet handler function.
   // The packet handler is a custom function with a signature like the
@@ -129,24 +136,58 @@ void loop() {
 
   timerVar = millis();
 
-  // // /* sample joystick pins and return state variable that indicates
-  // //    if anything has changed above NOISE_TOLERANCE threshold */
-  joystickPkt.data.state = sampleJoystickPins();
+  // // // /* sample joystick pins and return state variable that indicates
+  // // //    if anything has changed above NOISE_TOLERANCE threshold */
+  // joystickPkt.data.state = sampleJoystickPins();
 
-  // // // /* if change has been detected, send the new measured values to receiver */
-  if (joystickPkt.data.state) {
-    sendJoystickValue();
-  }
+  // // // // /* if change has been detected, send the new measured values to receiver */
+  // if (joystickPkt.data.state) {
+  //   sendJoystickValue();
+  // }
 
   /* poll buttons to check for any changes */
   switchCheck = buttons.pollSwitches();
 
   if (switchCheck != 0) {
-    Serial.println(switchCheck, HEX);
+    Serial.println(switchCheck);
     sendButtonCmd(switchCheck);
   }
 
-  // /* call the packetSerialStream periodically to receive and process incoming packets */
+  if (switchCheck != 0) {
+    if (switchCheck == 2) {
+      LEDBrightness++;
+      LEDStatus = 1;
+      if (LEDBrightness == 8) {
+        LEDBrightness = 1;
+      }
+    } else if (switchCheck == 3) {
+      LEDColour++;
+      LEDStatus = 1;
+      if (LEDColour == 8) {
+        LEDColour = 1;
+      }
+    } else if (switchCheck == 44) {
+      if (!lightStatus) {
+        lightStatus = 1;
+        changeColour(7, 1);
+        oled.clearDisplay();
+        oled.drawBitmap(0, 0, stuffEmoji(rand() % 5), 128, 64, WHITE);
+        oled.display();
+      } else {
+        lightStatus = 0;
+        changeColour(8, 1);   //Turn off LED strip
+        oled.clearDisplay();  //Turn off OLED screen
+        oled.display();
+        Serial.println("Flag power off");
+      }
+    }
+    if (LEDStatus && lightStatus) {
+      LEDStatus = 0;
+      changeColour(LEDColour, changeBrightness(LEDBrightness));
+    }
+  }
+
+  /* call the packetSerialStream periodically to receive and process incoming packets */
   packetSerialStream.update();
 
   /* delay until next period */
@@ -243,9 +284,13 @@ void setupOLED(uint8_t ID) {
   oled.setCursor(0, 0);          // position to display
   oled.println("Hello World!");  // text to display
   oled.display();                // show on OLED
+
+  oled.clearDisplay();
+  oled.drawBitmap(0, 0, stuffEmoji(1), 128, 64, WHITE);
+  oled.display();
 }
 
-const uint8_t* Stuff_Emoji(uint8_t slc) {
+const uint8_t* stuffEmoji(uint8_t slc) {
   switch (slc) {
     case 1:
       return RIGHT_LION;
@@ -264,41 +309,72 @@ const uint8_t* Stuff_Emoji(uint8_t slc) {
   }
 }
 
-void setupLED(uint8_t initialBrightness) {
-  strip.begin();                           // INITIALIZE NeoPixel strip object (REQUIRED)
-  strip.show();                            // Turn OFF all pixels ASAP
-  strip.setBrightness(initialBrightness);  // Set BRIGHTNESS to about 1/5 (max = 255)
+void setupLED(uint8_t maxPower) {
+  strip.begin();                  // INITIALIZE NeoPixel strip object (REQUIRED)
+  strip.show();                   // Turn OFF all pixels ASAP
+  strip.setBrightness(maxPower);  // Set BRIGHTNESS (max = 255)
 }
 
-void colorFill(uint32_t color) {
+void LEDFill(uint32_t color) {
   for (int i = 0; i < strip.numPixels(); i++) {  // For each pixel in strip...
     strip.setPixelColor(i, color);               //  Set pixel's color (in RAM)
-    strip.show();
-  }  //  Update strip to match                                //  Pause for a moment
+    strip.show();                                //  Update strip to match
+  }
 }
 
-void changeColour(uint8_t colour) {
-  switch (colour) {
+double changeBrightness(uint8_t brightness) {
+  switch (brightness) {
     case 1:
-      colorFill(strip.Color(0, 255, 0));  // Red
+      return 51;  //5% peak
       break;
     case 2:
-      colorFill(strip.Color(255, 0, 0));  // Green
+      return 25;  //10% peak
       break;
     case 3:
-      colorFill(strip.Color(0, 0, 255));  // Blue
+      return 17;  //15% peak
       break;
     case 4:
-      colorFill(strip.Color(255, 255, 0));  // Yellow
+      return 10;  //25% peak
       break;
     case 5:
-      colorFill(strip.Color(255, 0, 255));  // Cyan
+      return 2;  //50% peak
       break;
     case 6:
-      colorFill(strip.Color(0, 255, 255));  // Fuchsia
+      return 1.5;  //66.6% peak
       break;
     case 7:
-      colorFill(strip.Color(127, 127, 127));  // White
+      return 1;  //100% peak
+      break;
+    default:
+      break;
+  }
+}
+
+void changeColour(uint8_t colour, double dim) {
+  switch (colour) {
+    case 1:
+      LEDFill(strip.Color(0 / dim, 255 / dim, 0 / dim));  // Red
+      break;
+    case 2:
+      LEDFill(strip.Color(255 / dim, 0 / dim, 0 / dim));  // Green
+      break;
+    case 3:
+      LEDFill(strip.Color(0 / dim, 0 / dim, 255 / dim));  // Blue
+      break;
+    case 4:
+      LEDFill(strip.Color(255 / dim, 255 / dim, 0 / dim));  // Yellow
+      break;
+    case 5:
+      LEDFill(strip.Color(255 / dim, 0 / dim, 255 / dim));  // Cyan
+      break;
+    case 6:
+      LEDFill(strip.Color(0 / dim, 255 / dim, 255 / dim));  // Fuchsia
+      break;
+    case 7:
+      LEDFill(strip.Color(255 / dim, 255 / dim, 255 / dim));  // White
+      break;
+    case 8:
+      LEDFill(strip.Color(0, 0, 0));  // White
       break;
     default:
       break;
