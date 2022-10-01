@@ -36,35 +36,33 @@ unsigned long timeCount = 0;
 bool shutterType = false;
 
 //Motron I2C initalization
-MotoronI2C mc1(17);  //I2C serial address set to 17 from defult 16, done using setI2C example in Motron library
+//I2C serial address set to 17 from defult 16, done using setI2C example in Motron library
+MotoronI2C mc1(17);  // Use I2C 2 as the pins 24 & 25
 
 //Sabertooth serial initaliztaoin
-SabertoothSimplified ST(Serial5);  // Use Serial5 as the serial port.
+SabertoothSimplified ST(Serial1);  // Use Serial1 as the serial port pin 1
 
 //Air Commander initalization
-AirCommanderControl camCtrlAlpha(&Serial6);
-AirCommanderControl camCtrlBeta(&Serial7);
+AirCommanderControl camCtrlAlpha(&Serial7);  // Use Serial7 as the serial port pins 28 & 29
+AirCommanderControl camCtrlBeta(&Serial8);   // Use Serial8 as the serial port pins 34 & 35
 
 //Differential Steering object
 DifferentialSteering DiffSteer;
 
 //Create encoder objest using 2 pins that are interupt capable
-Encoder panEnc(30, 31);
-Encoder tiltEnc(32, 33);
+Encoder panEnc(18, 19);
+Encoder tiltEnc(31, 32);
 
 //define relay pins
-const uint8_t RIGHT_CAMERA_POWER_PIN = 1;
-const uint8_t LEFT_CAMERA_POWER_PIN = 2;
-const uint8_t RIGHT_LIGHT_POWER_PIN = 3;
-const uint8_t LEFT_LIGHT_POWER_PIN = 4;
-const uint8_t CAMERA_SELECT_PIN = 5;
-const uint8_t MICROPHONE_RECORD_PIN = 6;
-const uint8_t VIDEO_TRANSMIT_POWER_PIN = 7;
-const uint8_t DRIVE_POWER_PIN = 8;
-const uint8_t RELAY_COUNT = 8;
-
-
-
+const uint8_t VIDEO_TRANSMIT_POWER_PIN = 14;
+const uint8_t DRIVE_POWER_PIN = 15;
+const uint8_t HDMI_SWITCH_TRIGGER = 30;
+const uint8_t RIGHT_CAMERA_POWER_PIN = 36;
+const uint8_t LEFT_CAMERA_POWER_PIN = 37;
+const uint8_t RIGHT_LIGHT_POWER_PIN = 38;
+const uint8_t LEFT_LIGHT_POWER_PIN = 39;
+const uint8_t MICROPHONE_RECORD_PIN = 40;
+const uint8_t EXTRA_9V_OUT_PORT = 41;
 
 //Packet structure defination
 struct PacketStruct {
@@ -101,27 +99,16 @@ uint8_t sendMsg[4] = { 0x00 };
 
 // Define which status flags the Motoron should treat as errors.
 const uint16_t errorMask =
-  (1 << MOTORON_STATUS_FLAG_PROTOCOL_ERROR) |
-  (1 << MOTORON_STATUS_FLAG_CRC_ERROR) |
-  (1 << MOTORON_STATUS_FLAG_COMMAND_TIMEOUT_LATCHED) |
-  (1 << MOTORON_STATUS_FLAG_MOTOR_FAULT_LATCHED) |
-  (1 << MOTORON_STATUS_FLAG_NO_POWER_LATCHED) |
-  (1 << MOTORON_STATUS_FLAG_RESET) |
-  (1 << MOTORON_STATUS_FLAG_COMMAND_TIMEOUT) |
-  (1 << MOTORON_STATUS_FLAG_MOTOR_FAULTING) |
-  (1 << MOTORON_STATUS_FLAG_NO_POWER) |
-  (1 << MOTORON_STATUS_FLAG_ERROR_ACTIVE) |
-  (1 << MOTORON_STATUS_FLAG_MOTOR_OUTPUT_ENABLED) |
-  (1 << MOTORON_STATUS_FLAG_MOTOR_DRIVING);
+  (1 << MOTORON_STATUS_FLAG_PROTOCOL_ERROR) | (1 << MOTORON_STATUS_FLAG_CRC_ERROR) | (1 << MOTORON_STATUS_FLAG_COMMAND_TIMEOUT_LATCHED) | (1 << MOTORON_STATUS_FLAG_MOTOR_FAULT_LATCHED) | (1 << MOTORON_STATUS_FLAG_NO_POWER_LATCHED) | (1 << MOTORON_STATUS_FLAG_RESET) | (1 << MOTORON_STATUS_FLAG_COMMAND_TIMEOUT) | (1 << MOTORON_STATUS_FLAG_MOTOR_FAULTING) | (1 << MOTORON_STATUS_FLAG_NO_POWER) | (1 << MOTORON_STATUS_FLAG_ERROR_ACTIVE) | (1 << MOTORON_STATUS_FLAG_MOTOR_OUTPUT_ENABLED) | (1 << MOTORON_STATUS_FLAG_MOTOR_DRIVING);
 
 //Function prototypes
 bool axisModified(JoystickData*, uint8_t);
 int mapVal(double, double, double, double, double);
 void setupMotoron(MotoronI2C&);
-void setupRelay(uint8_t, uint8_t);
+void setupRelay();
 void triggerRelay(uint8_t);
-void serialEvent6();
 void serialEvent7();
+void serialEvent8();
 void sendCmd(uint16_t);
 void processButtonCmd(const uint8_t*, size_t);
 void camCtrl(AirCommanderControl*, uint8_t);
@@ -134,16 +121,17 @@ void checkAxisStop(int, int, int, int, int, MotoronI2C&);
 void setup() {
   Wire.begin();           //I2C to Motron
   Serial.begin(9600);     //Serial to pc termianl
-  Serial5.begin(9600);    // Serial to Sabertooth
-  camCtrlAlpha.begin(); // Serial to Air Commander for camera one/alpha
-  camCtrlBeta.begin(); // Serial to Air Commander for camera two/beta
-  Serial8.begin(115200);  // Serial to XBee
+  Serial1.begin(9600);    // Serial to Sabertooth
+  Serial5.begin(115200);  // Serial to XBee
+  camCtrlAlpha.begin();   // Serial to Air Commander for camera one/alpha
+  camCtrlBeta.begin();    // Serial to Air Commander for camera two/beta
 
   DiffSteer.begin(32);
 
   setupMotoron(mc1);
+  delay(50);
 
-  setupRelays(RIGHT_CAMERA_POWER_PIN, RELAY_COUNT);
+  setupRelays();
   // ST.motor(1, 0);
   // delay(10);
   // ST.motor(2, 0);
@@ -165,10 +153,10 @@ void loop() {
   /* call the packetSerialStream periodically to receive and process incoming packets */
 
 
-  if (millis() % LOOP_PERIOD_MS == 0) {
-    sendCmd(1000);
-    delay(5);
-  }
+  //  if (millis() % LOOP_PERIOD_MS == 0) {
+  //    sendCmd(1000);
+  //    delay(5);
+  //  }
 
   packetSerialStream.update();
 }
@@ -206,25 +194,18 @@ void processButtonCmd(const uint8_t* buffer, size_t size) {
   memcpy(&buttonCmd, buffer, size);
   buttonCmd[size] = 0;  //ensure null terminator
 
-  //  for (uint8_t i = 0; i < sizeof(buttonCmd); i++) {
-  //    Serial.print(buffer[i], HEX);
-  //    Serial.print(" ");
-  //  }
-  //  Serial.println();
-
   if (buttonCmd[1] == CAMERA_ALPHA) {
     camCtrl(&camCtrlAlpha, buttonCmd[0]);
-  } else { //CAMERA_BETA
+  } else {  //CAMERA_BETA
     camCtrl(&camCtrlBeta, buttonCmd[0]);
   }
-
 }
 
 void camCtrl(AirCommanderControl* camera, uint8_t command) {
-  Serial.print("sending command:\t");
+  Serial.print("recieved command:\t");
   Serial.println(command, HEX);
 
-  switch (command) {
+  switch (command) { //Different cases come from controllerLayout.h in switchreadinglibrary 
     case APERTURE_INC:
       camera->aperture_p();
       break;
@@ -277,19 +258,31 @@ void camCtrl(AirCommanderControl* camera, uint8_t command) {
       camera->display();
       break;
 
-    case TRIGGER_AF:
-      camera->af();
+    case TRIGGER_AF_RIGHT:
+      camCtrlAlpha.af();
       break;
 
-    case SHUTTER:
+    case TRIGGER_AF_LEFT:
+      camCtrlBeta.af();
+      break;
+
+    case SHUTTER_RIGHT:
       if (!shutterType) {
-        camera->photo();
+        camCtrlAlpha.photo();
+      } else if (shutterType) {
+        camCtrlAlpha.burst();
+      } else {
+        camCtrlAlpha.photo();
       }
-      else if (shutterType) {
-        camera->burst();
-      }
-      else {
-        camera->photo();
+      break;
+
+    case SHUTTER_LEFT:
+      if (!shutterType) {
+        camCtrlBeta.photo();
+      } else if (shutterType) {
+        camCtrlBeta.burst();
+      } else {
+        camCtrlBeta.photo();
       }
       break;
 
@@ -322,8 +315,7 @@ void camCtrl(AirCommanderControl* camera, uint8_t command) {
       break;
 
     case CAMERA_SELECT:
-      triggerRelay(CAMERA_SELECT_PIN);
-      //change LED or soemthing to show which camera you're viewing
+      triggerRelay(HDMI_SWITCH_TRIGGER);
       break;
 
     case LIGHT_POWER_RIGHT:
@@ -344,6 +336,10 @@ void camCtrl(AirCommanderControl* camera, uint8_t command) {
 
     case DRIVE_POWER:
       triggerRelay(DRIVE_POWER_PIN);
+      break;
+
+    case MISC_SWITCH:
+      triggerRelay(EXTRA_9V_OUT_PORT);
       break;
 
     case SHUTTER_SELECT:
@@ -370,8 +366,10 @@ void processJoystickData(const uint8_t* buffer, size_t size) {
   /* check which axis was modified and operate accordingly */
   if (axisModified(&joystickPkt, X_DIR_JOYSTICK_BIT) || axisModified(&joystickPkt, Y_DIR_JOYSTICK_BIT)) {
 
-    rightMotor = mapVal(joystickPkt.data.x_dir, 0, 1024, -127, 127);
-    leftMotor = mapVal(joystickPkt.data.y_dir, 0, 1024, -127, 127);
+    Serial.println("wheel movement");
+
+    rightMotor = mapVal(joystickPkt.data.x_dir, 375, 650, -127, 127);
+    leftMotor = mapVal(joystickPkt.data.y_dir, 375, 650, -127, 127);
 
     DiffSteer.computeMotors(rightMotor, leftMotor);
 
@@ -391,44 +389,114 @@ void processJoystickData(const uint8_t* buffer, size_t size) {
 
   if (axisModified(&joystickPkt, PAN_JOYSTICK_BIT)) {
 
-    panMotor = mapVal(joystickPkt.data.pan, 0, 1025, -800, 800);
+    panMotor = mapVal(joystickPkt.data.pan, 375, 650, -800, 800);
 
-    if (mc1.getLastError()) {
-      checkMcError(mc1.getLastError(), mc1);
-    }
+    //    Serial.println(errorStat);
 
-    checkAxisStop(-10000, 10000, panEnc.read(), 1, panMotor, mc1);
-    //    mc1.setSpeed(1, panMotor);
-    //    Serial.print("YAW MOVED: ");
-    //    Serial.println(panMotor);
+    //    if (errorStat) {
+    //      Serial.println("flag pan");
+    //      checkMcError(mc1.getLastError(), mc1);
+    //    }
+
+    //    checkAxisStop(-5000, 5000, panEnc.read(), 1, panMotor, mc1);
+    //    checkMcError(mc1.getStatusFlags(), mc1);
+
+    Serial.print("Pan Speed: ");
+    Serial.println(panMotor);
+
+    mc1.setSpeed(1, panMotor);
+    delay(1);
   }
 
   if (axisModified(&joystickPkt, TILT_JOYSTICK_BIT)) {
 
-    tiltMotor = mapVal(joystickPkt.data.tilt, 0, 1025, -800, 800);
+    tiltMotor = mapVal(joystickPkt.data.tilt, 375, 650, -800, 800);
 
-    if (mc1.getLastError()) {
-      checkMcError(mc1.getLastError(), mc1);
-    }
+    //    if (errorStat) {
+    //      Serial.println("flag tilt");
+    //      checkMcError(errorStat, mc1);
+    //    }
 
-    checkAxisStop(-10000, 10000, tiltEnc.read(), 2, tiltMotor, mc1);
-    //    mc1.setSpeed(2, tiltMotor);
-    //    Serial.print("PITCH MOVED: ");
-    //    Serial.println(tiltMotor);
+    //    checkAxisStop(-10000, 10000, tiltEnc.read(), 2, tiltMotor, mc1);
+    //        checkMcError(mc1.getStatusFlags(), mc1);
+    //     checkForProblems();
+
+    Serial.print("Tilt Speed: ");
+    Serial.println(tiltMotor);
+
+    mc1.setSpeed(2, tiltMotor);
+    delay(1);
+    //    checkMcError(mc1.getStatusFlags(), mc1);
   }
 
   if (axisModified(&joystickPkt, ROLL_JOYSTICK_BIT)) {
 
-    rollMotor = mapVal(joystickPkt.data.roll, 0, 1025, -800, 800);
+    rollMotor = mapVal(joystickPkt.data.roll, 375, 650, -800, 800);
 
-    if (mc1.getLastError()) {
-      checkMcError(mc1.getLastError(), mc1);
-    }
+    //    if (errorStat) {
+    //      Serial.println("flag roll");
+    //      checkMcError(errorStat, mc1);
+    //    }
+
+    //    checkMcError(mc1.getStatusFlags(), mc1);
+    //  checkForProblems();
+
+    Serial.print("Roll motor Speed: ");
+    Serial.println(rollMotor);
 
     mc1.setSpeed(3, rollMotor);
+    delay(1);
+  }
+}
 
-    //    Serial.print("ROLL MOVED: ");
-    //    Serial.println(yawMotor);
+// ADC reference voltage: change to 3300 if using a 3.3 V Arduino.
+const uint16_t referenceMv = 3300;
+void checkForProblems() {
+  uint16_t status = mc1.getStatusFlags();
+  checkCommunicationError(mc1.getLastError());
+  checkControllerError(status);
+
+  uint32_t voltageMv = mc1.getVinVoltageMv(referenceMv);
+  checkCommunicationError(mc1.getLastError());
+  checkVinVoltage(voltageMv);
+}
+
+void checkCommunicationError(uint8_t errorCode) {
+  if (errorCode) {
+    while (1) {
+      mc1.reset();
+      Serial.print(F("Communication error: "));
+      Serial.println(errorCode);
+      delay(1000);
+    }
+  }
+}
+
+// Minimum allowed VIN voltage.  You can raise this to be closer
+// to your power supply's expected voltage.
+const uint16_t minVinVoltageMv = 24000;
+void checkVinVoltage(uint16_t voltageMv) {
+  if (voltageMv < minVinVoltageMv) {
+    while (1) {
+      mc1.reset();
+      Serial.print(F("VIN voltage too low: "));
+      Serial.println(voltageMv);
+      delay(1000);
+    }
+  }
+}
+
+void checkControllerError(uint16_t status) {
+  if (status & errorMask) {
+    while (1) {
+      // One of the error flags is set.  The Motoron should
+      // already be stopping the motors.  We report the issue to
+      // the user and send reset commands to be extra careful.
+      mc1.reset();
+      Serial.print(F("Controller error: 0x"));
+      Serial.println(status, HEX);
+      delay(1000);
+    }
   }
 }
 
@@ -437,11 +505,11 @@ bool axisModified(JoystickData* joystickData, uint8_t axis) {
   return (joystickData->data.state & mask) >> axis;
 }
 
-void serialEvent6() {
+void serialEvent7() {
   camCtrlAlpha.serialHandler();
 }
 
-void serialEvent7() {
+void serialEvent8() {
   camCtrlBeta.serialHandler();
 }
 
@@ -454,34 +522,59 @@ void setupMotoron(MotoronI2C& mc) {
 
   mc.setErrorMask(errorMask);
 
-  mc.disableCrc();
+  //  mc.disableCrc();
 
   mc.disableCommandTimeout();
 
   mc.clearMotorFaultUnconditional();
 
-  mc.setMaxAcceleration(1, 250);
-  mc.setMaxDeceleration(1, 250);
+  mc.setMaxAcceleration(1, 50);
+  mc.setMaxDeceleration(1, 100);
 
-  mc.setMaxAcceleration(2, 250);
-  mc.setMaxDeceleration(2, 250);
+  mc.setMaxAcceleration(2, 150);
+  mc.setMaxDeceleration(2, 150);
 
-  mc.setMaxAcceleration(3, 250);
-  mc.setMaxDeceleration(3, 250);
+  mc.setMaxAcceleration(3, 100);
+  mc.setMaxDeceleration(3, 100);
+
+  Serial.println("Setup Motron Done");
+
+  // Depending on what was happening before this sketch started,
+  // the motors will either be stopped or decelerating.
+  // This loop waits for them to stop so that when the rest of
+  // the code starts running, it will run from
+  // a more predictable starting point.  This is optional.
+  while (mc.getMotorDrivingFlag()) {
+    mc.clearMotorFault();
+  }
 }
 
-void checkMcError(uint16_t status, MotoronI2C& mc){
-  if (status & errorMask)
-  {
-    while (1)
-    {
+void checkMcError(uint16_t status, MotoronI2C& mc) {
+  Serial.println(mc.getVinVoltageMv(3300));
+
+  if (status & errorMask) {
+    while (1) {
+      Serial.print("Controller error: 0x");
+      Serial.println(status, HEX);
       // One of the error flags is set.  The Motoron should
       // already be stopping the motors.  We report the issue to
       // the user and send reset commands to be extra careful.
+
+      mc.clearMotorFault();
+
       resetMotoron(mc1);
-      //      Serial.print(F("Controller error: 0x"));
-      //      Serial.println(status, HEX);
+
+      //      mc.reset();
+      //
+      //      mc.clearResetFlag();
+      //
+      //      mc.disableCrc();
+      //
+      //      mc.clearMotorFaultUnconditional();
+      //
       //      delay(1000);
+      //
+      //      Serial.println("reset done");
     }
   }
 }
@@ -492,27 +585,27 @@ void resetMotoron(MotoronI2C& mc) {
   mc.clearResetFlag();
 
   mc.clearMotorFaultUnconditional();
+
+  delay(1000);
+
+  Serial.println("reset done");
 }
 
 void checkAxisStop(int ccwStop, int cStop, int currentPos, int motorNum, int motorSpeed, MotoronI2C& mc) {
 
   if (cStop > currentPos && ccwStop < currentPos) {
     mc.setSpeed(motorNum, motorSpeed);
-  }
-  else if (currentPos <= ccwStop) {
+  } else if (currentPos <= ccwStop) {
     //checkCcwStop = true;
     mc.setSpeed(motorNum, -motorSpeed / 4);
     delay(750);
-  }
-  else if (currentPos >= cStop) {
+  } else if (currentPos >= cStop) {
     //checkCStop = true;
     mc.setSpeed(motorNum, -motorSpeed / 4);
     delay(750);
-  }
-  else {
+  } else {
     mc.setSpeed(motorNum, 0);
   }
-
 }
 
 int mapVal(double valIn, double oldMin, double oldMax, double newMin, double newMax) {
@@ -526,18 +619,48 @@ int mapVal(double valIn, double oldMin, double oldMax, double newMin, double new
     valOut = 0.0;
   }
 
+  if (valOut > newMax) {
+    valOut = newMax;
+  }
+
+  if (valOut < newMin) {
+    valOut = newMin;
+  }
+
   return valOut;
 }
 
-void setupRelays (uint8_t relayNum, uint8_t startPin) {
-  for (int pin = startPin; pin <= relayNum; pin++) {
-    pinMode(pin, OUTPUT);
-    digitalWrite(pin, HIGH);
-  }
+void setupRelays() {
+  pinMode(VIDEO_TRANSMIT_POWER_PIN, OUTPUT);
+  digitalWrite(VIDEO_TRANSMIT_POWER_PIN, HIGH);
+
+  pinMode(DRIVE_POWER_PIN, OUTPUT);
+  digitalWrite(DRIVE_POWER_PIN, HIGH);
+
+  pinMode(HDMI_SWITCH_TRIGGER, OUTPUT);
+  digitalWrite(HDMI_SWITCH_TRIGGER, HIGH);
+
+  pinMode(RIGHT_CAMERA_POWER_PIN, OUTPUT);
+  digitalWrite(RIGHT_CAMERA_POWER_PIN, HIGH);
+
+  pinMode(LEFT_CAMERA_POWER_PIN, OUTPUT);
+  digitalWrite(LEFT_CAMERA_POWER_PIN, HIGH);
+
+  pinMode(RIGHT_LIGHT_POWER_PIN, OUTPUT);
+  digitalWrite(RIGHT_LIGHT_POWER_PIN, HIGH);
+
+  pinMode(LEFT_LIGHT_POWER_PIN, OUTPUT);
+  digitalWrite(LEFT_LIGHT_POWER_PIN, HIGH);
+
+  pinMode(MICROPHONE_RECORD_PIN, OUTPUT);
+  digitalWrite(MICROPHONE_RECORD_PIN, HIGH);
+
+  pinMode(EXTRA_9V_OUT_PORT, OUTPUT);
+  digitalWrite(EXTRA_9V_OUT_PORT, HIGH);
 }
 
-void triggerRelay (uint8_t pin) {
-  bool status = digitalRead (pin);
+void triggerRelay(uint8_t pin) {
+  bool status = digitalRead(pin);
   status = !status;
   digitalWrite(pin, status);
 }
